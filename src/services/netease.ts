@@ -15,7 +15,7 @@ const base62 = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 export let proxyConfig: AxiosRequestConfig | undefined;
 
-export function setProxy(proxyUrl: string | undefined) {
+export function setProxy(proxyUrl: string | undefined, silent = false) {
   if (proxyUrl) {
     proxyConfig = {
       proxy: {
@@ -24,7 +24,7 @@ export function setProxy(proxyUrl: string | undefined) {
         port: parseInt(new URL(proxyUrl).port),
       }
     };
-    console.log('代理已设置 Proxy configured:', proxyUrl);
+    if (!silent) console.log('代理已设置 Proxy configured:', proxyUrl);
   } else {
     proxyConfig = undefined;
   }
@@ -138,6 +138,14 @@ export function describeApiCode(code: number | string | undefined, message?: str
     hint = '请求过于频繁，请稍后重试。Too many requests; retry later.';
   }
   return hint ? `${base}。${hint}` : base;
+}
+
+// 连接层错误（无响应或代理自身报错），区别于歌曲本身不可用
+// Connection-level failure (no response, or the proxy itself erroring), as opposed to a song being unavailable
+export function isConnectionError(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  if (!error.response) return true;
+  return [407, 502, 503, 504].includes(error.response.status);
 }
 
 export function describeNetworkError(error: unknown): string {
@@ -363,6 +371,7 @@ interface SongUrlResult {
   reason?: string;
   // 接口级错误，换音质重试没有意义 API/network-level failure; other qualities will not help
   fatal?: boolean;
+  networkError?: boolean;
 }
 
 export interface SearchResult {
@@ -567,7 +576,7 @@ async function getSongUrl(id: string, level: string): Promise<SongUrlResult> {
     console.log(`获取到音质 Quality: ${level}, 比特率 Bitrate: ${Math.floor(songData.br / 1000)}kbps, 格式 Format: ${songData.type}, URL: ${songData.url}`);
     return { url: songData.url };
   } catch (error) {
-    return { url: null, fatal: true, reason: describeNetworkError(error) };
+    return { url: null, fatal: true, reason: describeNetworkError(error), networkError: isConnectionError(error) };
   }
 }
 
@@ -579,13 +588,16 @@ export async function checkSongAvailability(id: string): Promise<{
   bitrate?: number;
   type?: string;
   reason?: string;
+  networkError?: boolean;
 }> {
   let reason: string | undefined;
+  let networkError = false;
   // 尝试获取最高音质
   for (const level of QUALITY_LEVELS) {
     const result = await getSongUrl(id, level);
     if (!result.url) {
       reason = reason || result.reason;
+      if (result.networkError) networkError = true;
       if (result.fatal) break;
       continue;
     }
@@ -616,10 +628,11 @@ export async function checkSongAvailability(id: string): Promise<{
       reason = reason || `文件过小，可能是试听片段 File too small (${Number.isNaN(contentLength) ? 'unknown' : contentLength} bytes), possibly a trial clip (${level})`;
     } catch (error) {
       reason = reason || `HEAD 检查失败 HEAD check failed (${level}): ${describeNetworkError(error)}`;
+      if (isConnectionError(error)) networkError = true;
     }
   }
 
-  return { available: false, reason };
+  return { available: false, reason, networkError };
 }
 
 export async function getLyrics(id: string): Promise<string | null> {
@@ -674,6 +687,12 @@ export async function getLyrics(id: string): Promise<string | null> {
   }
 }
 
+// 找到可用代理后沿用，不再为每首失败的歌曲重新搜索代理
+// Once a working proxy is found it is reused; it is only replaced after repeated connection failures
+let stickyProxyUrl: string | undefined;
+let stickyProxyFailures = 0;
+const MAX_STICKY_PROXY_FAILURES = 3;
+
 export async function checkSongAvailabilityWithRetry(id: string, autoProxy?: boolean): Promise<{
   available: boolean;
   contentLength?: number;
@@ -686,6 +705,28 @@ export async function checkSongAvailabilityWithRetry(id: string, autoProxy?: boo
 }> {
   showCookieHintOnce();
   let reason: string | undefined;
+
+  if (autoProxy && stickyProxyUrl) {
+    setProxy(stickyProxyUrl, true);
+    const result = await checkSongAvailability(id);
+    if (result.available) {
+      stickyProxyFailures = 0;
+      return { ...result, needProxy: true };
+    }
+    if (!result.networkError) {
+      // 歌曲本身的问题，代理没问题 The song is the problem, not the proxy
+      stickyProxyFailures = 0;
+      return { available: false, needProxy: true, reason: result.reason };
+    }
+    stickyProxyFailures++;
+    if (stickyProxyFailures < MAX_STICKY_PROXY_FAILURES) {
+      return { available: false, needProxy: true, reason: result.reason };
+    }
+    console.log(`当前代理连续 ${MAX_STICKY_PROXY_FAILURES} 次连接失败，重新寻找代理 Current proxy failed ${MAX_STICKY_PROXY_FAILURES} times in a row, finding a new one...`);
+    stickyProxyUrl = undefined;
+    stickyProxyFailures = 0;
+  }
+
   // 先尝试直连
   console.log('尝试直连下载 Trying direct connection...');
   const originalProxy = proxyConfig;
@@ -709,6 +750,8 @@ export async function checkSongAvailabilityWithRetry(id: string, autoProxy?: boo
     console.log('正在寻找可用的代理服务器 Finding available proxy server...');
     const proxyUrl = await getAutoProxy();
     if (proxyUrl) {
+      stickyProxyUrl = proxyUrl;
+      stickyProxyFailures = 0;
       try {
         const result = await checkSongAvailability(id);
         if (!result.available) {

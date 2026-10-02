@@ -2,7 +2,6 @@ import { SingleBar, type Options } from 'cli-progress';
 import axios from 'axios';
 import * as fs from 'fs';
 import { getSongInfo, checkSongAvailabilityWithRetry, getLyrics, proxyConfig, formatUnavailableHelp } from '../services/netease';
-import { getAutoProxy } from '../services/proxy';
 import { sanitizeFileName, getDownloadPath } from '../utils/file';
 import { createSingleBar } from '../utils/progress';
 import { tagFile } from '../services/tagger';
@@ -152,10 +151,6 @@ export async function downloadSong(id: string, progressBar?: SingleBar, options?
     retryCount++;
     if (retryCount < MAX_RETRIES) {
       console.log(`\n第 ${retryCount}/${MAX_RETRIES} 次重试 Retry ${retryCount}/${MAX_RETRIES}`);
-      if (options?.autoProxy) {
-        console.log('重新获取代理列表 Updating proxy list...');
-        await getAutoProxy(true); // 强制更新代理列表
-      }
     }
   }
 
