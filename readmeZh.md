@@ -46,6 +46,10 @@ npx netease-music-downloader download 426832090 --proxy http://127.0.0.1:7890
 # 下载歌单（ID 或 URL；私密歌单需先保存 Cookie）
 npx netease-music-downloader playlist 3778678
 
+# 重复运行即可续传：歌单文件夹中已有的歌曲会被跳过（不会发起网络请求）。
+# 加上 --force 可重新下载全部歌曲。
+npx netease-music-downloader playlist 3778678 --force
+
 # 仅下载歌单歌词
 npx netease-music-downloader playlist-lyrics 3778678
 ```

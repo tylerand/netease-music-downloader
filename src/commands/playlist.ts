@@ -1,5 +1,6 @@
 import axios from 'axios';
 import * as fs from 'fs';
+import * as path from 'path';
 import { createMultiBar } from '../utils/progress';
 import {
   getPlaylistInfo,
@@ -10,6 +11,33 @@ import {
 } from '../services/netease';
 import { sanitizeFileName, getDownloadPath } from '../utils/file';
 import { tagFile } from '../services/tagger';
+
+const AUDIO_EXTENSIONS = new Set(['.mp3', '.flac', '.m4a', '.aac', '.ogg', '.wav']);
+
+// 同一首歌的比对键，忽略序号前缀与扩展名 Match key that ignores the numeric prefix and extension
+function songKey(artist: string, title: string): string {
+  return `${sanitizeFileName(artist)}-${sanitizeFileName(title)}`.toLowerCase();
+}
+
+// 扫描歌单文件夹，返回已下载歌曲的键；顺带清理上次中断留下的 .part 文件
+// Scan the playlist folder for finished songs and remove leftover .part files from interrupted runs
+function scanExistingSongs(dir: string): Set<string> {
+  const keys = new Set<string>();
+  if (!fs.existsSync(dir)) return keys;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const full = path.join(dir, entry.name);
+    const ext = path.extname(entry.name).toLowerCase();
+    if (ext === '.part') {
+      fs.unlinkSync(full);
+      continue;
+    }
+    if (!AUDIO_EXTENSIONS.has(ext) || fs.statSync(full).size === 0) continue;
+    const stem = path.basename(entry.name, path.extname(entry.name)).replace(/^\d+\s*[.、]\s*/, '').trim();
+    keys.add(stem.toLowerCase());
+  }
+  return keys;
+}
 
 function extractPlaylistId(input: string): string {
   if (input.includes('music.163.com')) {
@@ -33,13 +61,20 @@ async function loadPlaylist(playlistInput: string) {
   }
 }
 
-export async function downloadPlaylist(playlistInput: string, options?: { autoProxy?: boolean }): Promise<void> {
+export async function downloadPlaylist(playlistInput: string, options?: { autoProxy?: boolean; force?: boolean }): Promise<void> {
   const { songs, playlistName, creatorName } = await loadPlaylist(playlistInput);
 
   console.log(`\n歌单信息 Playlist info: ${playlistName} - ${creatorName}`);
   console.log(`共 Total: ${songs.length} 首歌曲 songs\n`);
 
   const dirName = `${sanitizeFileName(playlistName)}`;
+  const playlistDir = path.dirname(getDownloadPath('album', 'x', dirName));
+  const existing = options?.force ? new Set<string>() : scanExistingSongs(playlistDir);
+  if (options?.force) {
+    console.log('已启用 --force，将重新下载所有歌曲 --force enabled: re-downloading all songs');
+  } else if (existing.size > 0) {
+    console.log(`文件夹已存在，已下载 ${existing.size} 首，将只下载新增歌曲 Folder exists: ${existing.size} songs already downloaded, only new songs will be fetched (use --force to re-download)\n`);
+  }
   const multibar = createMultiBar();
   const results = { success: 0, skipped: 0, failed: 0 };
   const failures: Array<{ index: number; name: string; id: string; reason: string }> = [];
@@ -56,6 +91,11 @@ export async function downloadPlaylist(playlistInput: string, options?: { autoPr
     const displayName = `${artistName}-${song.name}`;
     const prefix = `[${i + 1}/${songs.length}]`;
     let attempt = 0;
+
+    if (!options?.force && existing.has(songKey(artistName, song.name))) {
+      results.skipped++;
+      continue;
+    }
 
     while (true) {
       try {
@@ -77,12 +117,6 @@ export async function downloadPlaylist(playlistInput: string, options?: { autoPr
           console.log(`${prefix} 歌词下载完成 Lyrics downloaded`);
         }
 
-        if (fs.existsSync(filePath)) {
-          console.log(`\n${prefix} ${base}.${ext} (文件已存在，跳过下载 File exists, skipping download)`);
-          results.skipped++;
-          break;
-        }
-
         console.log(`\n${prefix} 开始下载 Start downloading: ${displayName}`);
         const response = await axios({
           method: 'get',
@@ -95,7 +129,8 @@ export async function downloadPlaylist(playlistInput: string, options?: { autoPr
         const bar = multibar.create(Math.round(totalLength / 1024), 0, {
           name: `${prefix} ${song.name.slice(0, 30)}${song.name.length > 30 ? '...' : ''}`
         });
-        const writer = fs.createWriteStream(filePath);
+        const partPath = `${filePath}.part`;
+        const writer = fs.createWriteStream(partPath);
         let downloaded = 0;
         response.data.on('data', (chunk: Buffer) => {
           downloaded += chunk.length;
@@ -111,14 +146,15 @@ export async function downloadPlaylist(playlistInput: string, options?: { autoPr
           });
         } catch (err) {
           writer.destroy();
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+          if (fs.existsSync(partPath)) fs.unlinkSync(partPath);
           throw err;
         }
 
         if (downloaded < totalLength * 0.99) {
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+          if (fs.existsSync(partPath)) fs.unlinkSync(partPath);
           throw new Error('下载不完整 Incomplete download');
         }
+        fs.renameSync(partPath, filePath);
         bar.update(Math.round(totalLength / 1024));
         await tagFile(filePath, { song, lyrics });
         results.success++;
@@ -140,7 +176,7 @@ export async function downloadPlaylist(playlistInput: string, options?: { autoPr
 
   multibar.stop();
   console.log('\n歌单下载完成！Playlist download completed!');
-  console.log(`${results.success} 首下载成功 songs downloaded, ${results.failed} 首失败 songs failed` + (results.skipped ? ` (${results.skipped} 首已存在已跳过 already existed, skipped)` : ''));
+  console.log(`${results.success} 首下载成功 songs downloaded, ${results.failed} 首失败 songs failed` + (results.skipped ? ` (${results.skipped} 首已存在已跳过 already downloaded, skipped)` : ''));
 
   if (failures.length > 0) {
     const lines = [

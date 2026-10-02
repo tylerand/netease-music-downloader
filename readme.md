@@ -48,6 +48,10 @@ npx netease-music-downloader download 426832090 --proxy http://127.0.0.1:7890
 # Download a playlist (ID or URL; private playlists need a saved cookie)
 npx netease-music-downloader playlist 3778678
 
+# Re-running a playlist resumes it: songs already in the playlist folder are skipped
+# (no network requests for them). Add --force to re-download everything.
+npx netease-music-downloader playlist 3778678 --force
+
 # Download lyrics only for a playlist
 npx netease-music-downloader playlist-lyrics 3778678
 ```

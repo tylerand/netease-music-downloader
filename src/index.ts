@@ -122,8 +122,9 @@ program
   .command('playlist')
   .description('下载整个歌单 Download full playlist')
   .argument('<playlistId>', '歌单ID或URL Playlist ID or URL')
-  .action(async (playlistId: string) => {
-    await downloadPlaylist(playlistId, { autoProxy: program.opts().autoProxy });
+  .option('--force', '重新下载已存在的歌曲（默认跳过）Re-download songs that already exist (skipped by default)')
+  .action(async (playlistId: string, options: { force?: boolean }) => {
+    await downloadPlaylist(playlistId, { autoProxy: program.opts().autoProxy, force: options.force });
   });
 
 program
