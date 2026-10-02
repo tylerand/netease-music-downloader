@@ -41,6 +41,11 @@ export async function downloadPlaylist(playlistInput: string, options?: { autoPr
   const dirName = `${sanitizeFileName(playlistName)}`;
   const multibar = createMultiBar();
   const results = { success: 0, skipped: 0, failed: 0 };
+  const failures: Array<{ index: number; name: string; id: string; reason: string }> = [];
+  const recordFailure = (index: number, name: string, id: string, reason: string) => {
+    results.failed++;
+    failures.push({ index, name, id, reason: reason.replace(/\s*\n\s*/g, ' ') });
+  };
   const MAX_RETRIES = 3;
   const pad = String(songs.length).length < 2 ? 2 : String(songs.length).length;
 
@@ -56,7 +61,7 @@ export async function downloadPlaylist(playlistInput: string, options?: { autoPr
         const availability = await checkSongAvailabilityWithRetry(song.id, options?.autoProxy);
         if (!availability.available || !availability.url) {
           console.log(`\n${prefix} ${displayName} 无法获取下载链接，跳过下载 Cannot get download URL, skipping download\n${formatUnavailableHelp(availability.reason, options?.autoProxy)}`);
-          results.skipped++;
+          recordFailure(i + 1, displayName, song.id, availability.reason || '无法获取下载链接 Cannot get download URL');
           break;
         }
 
@@ -125,14 +130,28 @@ export async function downloadPlaylist(playlistInput: string, options?: { autoPr
           continue;
         }
         console.error(`\n${prefix} ${song.name} - 下载失败 Download failed: ${message}`);
-        results.failed++;
+        recordFailure(i + 1, displayName, song.id, message);
         break;
       }
     }
   }
 
   multibar.stop();
-  console.log(`\n歌单下载完成！Playlist download completed! 成功 Success: ${results.success}, 跳过 Skipped: ${results.skipped}, 失败 Failed: ${results.failed}`);
+  console.log('\n歌单下载完成！Playlist download completed!');
+  console.log(`${results.success} 首下载成功 songs downloaded, ${results.failed} 首失败 songs failed` + (results.skipped ? ` (${results.skipped} 首已存在已跳过 already existed, skipped)` : ''));
+
+  if (failures.length > 0) {
+    const lines = [
+      `歌单 Playlist: ${playlistName} (${creatorName})`,
+      `总计 Total: ${songs.length}, 成功 Downloaded: ${results.success}, 失败 Failed: ${results.failed}, 已存在跳过 Skipped: ${results.skipped}`,
+      '',
+      '失败歌曲 Failed songs (序号 # | 名称 name | ID | 原因 reason):',
+      ...failures.map(f => `${f.index}. ${f.name} | ID ${f.id} | ${f.reason}`)
+    ];
+    const logPath = getDownloadPath('album', 'failed-songs.txt', dirName);
+    fs.writeFileSync(logPath, lines.join('\n') + '\n', 'utf8');
+    console.log(`失败列表已保存 Failed songs log saved: ${logPath}`);
+  }
 }
 
 export async function downloadPlaylistLyrics(playlistInput: string): Promise<void> {
