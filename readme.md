@@ -44,6 +44,12 @@ npx netease-music-downloader download 426832090 --auto-proxy
 
 # Download with manual proxy
 npx netease-music-downloader download 426832090 --proxy http://127.0.0.1:7890
+
+# Download a playlist (ID or URL; private playlists need a saved cookie)
+npx netease-music-downloader playlist 3778678
+
+# Download lyrics only for a playlist
+npx netease-music-downloader playlist-lyrics 3778678
 ```
 
 <!--

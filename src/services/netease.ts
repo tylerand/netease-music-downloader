@@ -4,7 +4,7 @@ import { createCipheriv, createHash, randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { Song, AlbumInfo } from '../types';
+import { Song, AlbumInfo, PlaylistInfo } from '../types';
 import { getAutoProxy } from './proxy';
 
 // 网易云音乐 API 加密参数
@@ -361,6 +361,116 @@ interface SongUrlResult {
   reason?: string;
   // 接口级错误，换音质重试没有意义 API/network-level failure; other qualities will not help
   fatal?: boolean;
+}
+
+function parseSong(song: any): Song {
+  const artists = song.ar?.map((artist: any) => ({
+    name: artist.name || '未知歌手 Unknown Artist'
+  })) || [{ name: '未知歌手 Unknown Artist' }];
+  return {
+    id: song.id.toString(),
+    name: `${song.name}${song.alia?.length ? ` (${song.alia[0]})` : ''}`,
+    artists,
+    album: { name: song.al?.name || '', picUrl: song.al?.picUrl },
+    duration: song.dt,
+    publishTime: song.publishTime
+  };
+}
+
+// 批量获取歌曲详情，保持传入顺序 Batch song details, preserving the given order
+async function getSongsByIds(ids: string[]): Promise<Song[]> {
+  const BATCH = 100;
+  const byId = new Map<string, Song>();
+  for (let start = 0; start < ids.length; start += BATCH) {
+    const batch = ids.slice(start, start + BATCH);
+    const url = '/api/v3/song/detail';
+    const { params } = eapi(url, {
+      c: JSON.stringify(batch.map(id => ({ id }))),
+      header: {
+        os: 'iOS',
+        appver: '2.5.1',
+        deviceId: randomBytes(8).toString('hex').toUpperCase(),
+      }
+    });
+    const response = await axios.post(
+      'https://interface3.music.163.com/eapi/v3/song/detail',
+      new URLSearchParams({ params }).toString(),
+      {
+        headers: {
+          ...getHeaders(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'NeteaseMusic/2.5.1 (iPhone; iOS 16.6; Scale/3.00)'
+        },
+        timeout: 15000,
+        ...proxyConfig
+      }
+    );
+    for (const song of response.data?.songs || []) {
+      byId.set(song.id.toString(), parseSong(song));
+    }
+  }
+  return ids.map(id => byId.get(id)).filter((s): s is Song => !!s);
+}
+
+export async function getPlaylistInfo(playlistId: string): Promise<PlaylistInfo> {
+  try {
+    const url = '/api/v6/playlist/detail';
+    const { params } = eapi(url, {
+      id: playlistId,
+      n: 100000,
+      s: 8,
+      header: {
+        os: 'iOS',
+        appver: '2.5.1',
+        deviceId: randomBytes(8).toString('hex').toUpperCase(),
+      }
+    });
+    const response = await axios.post(
+      'https://interface3.music.163.com/eapi/v6/playlist/detail',
+      new URLSearchParams({ params }).toString(),
+      {
+        headers: {
+          ...getHeaders(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'NeteaseMusic/2.5.1 (iPhone; iOS 16.6; Scale/3.00)'
+        },
+        timeout: 15000,
+        ...proxyConfig
+      }
+    );
+
+    if (response.data?.code !== 200) {
+      let message = describeApiCode(response.data?.code, response.data?.message);
+      if (Number(response.data?.code) === 404 || Number(response.data?.code) === 401) {
+        message += '。歌单不存在，或为私密歌单（请先 `cookie set` 登录）。Playlist not found, or it is private (log in via `cookie set`).';
+      }
+      throw new Error(message);
+    }
+
+    const playlist = response.data?.playlist;
+    if (!playlist) throw new Error('获取歌单信息失败 Failed to get playlist info');
+
+    const trackIds: string[] = (playlist.trackIds || []).map((t: any) => t.id.toString());
+    let songs: Song[];
+    if (trackIds.length > 0) {
+      songs = await getSongsByIds(trackIds);
+    } else {
+      songs = (playlist.tracks || []).map(parseSong);
+    }
+    if (songs.length < trackIds.length) {
+      console.log(`警告：${trackIds.length - songs.length} 首歌曲详情获取失败 Warning: failed to load details for ${trackIds.length - songs.length} tracks`);
+    }
+
+    return {
+      songs,
+      playlistName: playlist.name || `playlist-${playlistId}`,
+      creatorName: playlist.creator?.nickname || '未知用户 Unknown User',
+      picUrl: playlist.coverImgUrl
+    };
+  } catch (error) {
+    console.error('获取歌单信息失败 Failed to get playlist info:', axios.isAxiosError(error) ? describeNetworkError(error) : (error instanceof Error ? error.message : 'Unknown error'));
+    throw error;
+  }
 }
 
 async function getSongUrl(id: string, level: string): Promise<SongUrlResult> {

@@ -4,6 +4,7 @@ import { program } from 'commander';
 import { downloadSong } from './commands/download';
 import { downloadAlbum } from './commands/album';
 import { downloadSongLyrics, downloadAlbumLyrics } from './commands/lyrics';
+import { downloadPlaylist, downloadPlaylistLyrics } from './commands/playlist';
 import { setProxy, initCookie, normalizeCookie, saveStoredCookie, clearStoredCookie, readStoredCookie, describeCookie, getCookieFilePath } from './services/netease';
 import { getAutoProxy } from './services/proxy';
 import * as fs from 'fs';
@@ -111,6 +112,22 @@ program
   .argument('<albumId>', '专辑ID或URL Album ID or URL')
   .action(async (albumId: string) => {
     await downloadAlbumLyrics(albumId);
+  });
+
+program
+  .command('playlist')
+  .description('下载整个歌单 Download full playlist')
+  .argument('<playlistId>', '歌单ID或URL Playlist ID or URL')
+  .action(async (playlistId: string) => {
+    await downloadPlaylist(playlistId, { autoProxy: program.opts().autoProxy });
+  });
+
+program
+  .command('playlist-lyrics')
+  .description('下载整个歌单的歌词 Download lyrics for full playlist')
+  .argument('<playlistId>', '歌单ID或URL Playlist ID or URL')
+  .action(async (playlistId: string) => {
+    await downloadPlaylistLyrics(playlistId);
   });
 
 const cookieCmd = program
