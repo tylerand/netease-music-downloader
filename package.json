@@ -38,6 +38,7 @@
   "license": "MIT",
   "scripts": {
     "start": "ts-node src/index.ts",
+    "cookie": "ts-node src/index.ts cookie",
     "build": "tsc",
     "dev": "ts-node-dev --respawn src/index.ts",
     "prepare": "npm run build"
