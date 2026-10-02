@@ -9,6 +9,7 @@ import {
   formatUnavailableHelp
 } from '../services/netease';
 import { sanitizeFileName, getDownloadPath } from '../utils/file';
+import { tagFile } from '../services/tagger';
 
 function extractPlaylistId(input: string): string {
   if (input.includes('music.163.com')) {
@@ -119,6 +120,7 @@ export async function downloadPlaylist(playlistInput: string, options?: { autoPr
           throw new Error('下载不完整 Incomplete download');
         }
         bar.update(Math.round(totalLength / 1024));
+        await tagFile(filePath, { song, lyrics });
         results.success++;
         break;
       } catch (error) {

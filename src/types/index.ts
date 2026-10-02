@@ -10,6 +10,7 @@ export interface Song {
   };
   duration?: number;
   publishTime?: number;
+  trackNumber?: number;
 }
 
 export interface AlbumInfo {

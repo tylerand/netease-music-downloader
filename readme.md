@@ -155,6 +155,26 @@ pnpm start album 34836039 --proxy http://127.0.0.1:7890
 
 Note: When using a manual proxy, prefer using `http://` instead of `https://` for the proxy URL, as some proxy servers may not properly support HTTPS connections.
 
+## Metadata Tags
+
+`download`, `album` and `playlist` automatically write ID3/Vorbis/MP4 tags into each file: title, artist(s), album, year, track number, cover art and embedded lyrics (album downloads also set album artist and track total). Use the global `--no-tags` option to turn this off. Tagging failures only print a warning and never fail the download.
+
+### Tag files you already downloaded
+
+Point `tag` at a folder. Each audio file is searched on NetEase by its file name (`01.Artist-Title.mp3`, `Artist-Title.mp3` or just `Title.mp3`), the best match is chosen (title, artist and duration are compared), and the tags and cover are filled in. A sibling `.lrc` file is embedded as lyrics.
+
+```bash
+# Preview matches without changing any file
+npx netease-music-downloader tag "./downloads/My Playlist" --dry-run
+
+# Write tags (sub-folders included; files that already have tags are skipped)
+npx netease-music-downloader tag "./downloads/My Playlist"
+
+# Options: --force (overwrite existing tags), --min-score 0.8 (stricter), --no-recursive
+```
+
+Files with no good match are listed in `tag-problems.txt` inside the folder. Matching is by name, so a few wrong matches (covers, live versions) are possible; use `--dry-run` first and raise `--min-score` if needed.
+
 ## Using a Login Cookie (VIP / Paid Songs)
 
 By default the tool accesses NetEase as a guest, so VIP-only or paid songs may fail with "no download URL". You can supply your own login cookie.

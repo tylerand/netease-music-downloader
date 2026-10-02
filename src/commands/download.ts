@@ -5,6 +5,7 @@ import { getSongInfo, checkSongAvailabilityWithRetry, getLyrics, proxyConfig, fo
 import { getAutoProxy } from '../services/proxy';
 import { sanitizeFileName, getDownloadPath } from '../utils/file';
 import { createSingleBar } from '../utils/progress';
+import { tagFile } from '../services/tagger';
 
 async function downloadImage(url: string): Promise<Buffer | null> {
   try {
@@ -114,6 +115,9 @@ export async function downloadSong(id: string, progressBar?: SingleBar, options?
           clearInterval(checkProgress);
           bar.stop();
           if (downloadedBytes >= totalLength * 0.99) { // 允许1%的误差
+            if (await tagFile(filePath, { song, lyrics })) {
+              console.log('元数据已写入 Tags written');
+            }
             console.log(`\n下载完成 Download completed: ${fileName}`);
             resolve(true);
           } else {

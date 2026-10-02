@@ -274,7 +274,8 @@ export async function getSongInfo(id: string): Promise<Song> {
         picUrl: song.al?.picUrl
       },
       duration: song.dt, // duration in milliseconds
-      publishTime: song.publishTime
+      publishTime: song.publishTime,
+      trackNumber: song.no
     };
   } catch (error) {
     console.error('获取歌曲信息失败 Failed to get song info:', axios.isAxiosError(error) ? describeNetworkError(error) : (error instanceof Error ? error.message : 'Unknown error'));
@@ -332,7 +333,8 @@ export async function getAlbumInfo(albumId: string): Promise<AlbumInfo> {
           picUrl: album.picUrl
         },
         duration: song.dt,
-        publishTime: song.publishTime
+        publishTime: song.publishTime,
+        trackNumber: song.no
       };
     });
 
@@ -363,6 +365,38 @@ interface SongUrlResult {
   fatal?: boolean;
 }
 
+export interface SearchResult {
+  id: string;
+  name: string;
+  alias?: string;
+  artists: string[];
+  album: string;
+  duration?: number;
+}
+
+export async function searchSongs(keyword: string, limit = 30): Promise<SearchResult[]> {
+  const response = await axios.post(
+    'https://music.163.com/api/cloudsearch/pc',
+    new URLSearchParams({ s: keyword, type: '1', limit: String(limit), offset: '0', total: 'true' }).toString(),
+    {
+      headers: { ...getHeaders(), 'Content-Type': 'application/x-www-form-urlencoded' },
+      timeout: 15000,
+      ...proxyConfig
+    }
+  );
+  if (response.data?.code !== 200) {
+    throw new Error(describeApiCode(response.data?.code, response.data?.message));
+  }
+  return (response.data?.result?.songs || []).map((s: any) => ({
+    id: String(s.id),
+    name: s.name || '',
+    alias: s.alia?.[0],
+    artists: (s.ar || []).map((a: any) => a.name).filter(Boolean),
+    album: s.al?.name || '',
+    duration: s.dt
+  }));
+}
+
 function parseSong(song: any): Song {
   const artists = song.ar?.map((artist: any) => ({
     name: artist.name || '未知歌手 Unknown Artist'
@@ -373,7 +407,8 @@ function parseSong(song: any): Song {
     artists,
     album: { name: song.al?.name || '', picUrl: song.al?.picUrl },
     duration: song.dt,
-    publishTime: song.publishTime
+    publishTime: song.publishTime,
+    trackNumber: song.no
   };
 }
 

@@ -4,6 +4,7 @@ import { sanitizeFileName, getDownloadPath } from '../utils/file';
 import axios from 'axios';
 import * as fs from 'fs';
 import { Octokit } from '@octokit/rest';
+import { tagFile } from '../services/tagger';
 
 async function downloadImage(url: string): Promise<Buffer | null> {
   try {
@@ -131,6 +132,14 @@ export async function downloadAlbum(albumId: string, issueNumber?: number, optio
         });
 
         progressBar.update(Math.round(totalLength/1024));
+
+        await tagFile(filePath, {
+          song,
+          albumArtist: albumInfo.artistName,
+          trackNumber: song.trackNumber || i + 1,
+          trackTotal: songs.length,
+          lyrics
+        });
 
         downloadResults.success.push(displayName);
         i++;

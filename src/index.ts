@@ -4,6 +4,8 @@ import { program } from 'commander';
 import { downloadSong } from './commands/download';
 import { downloadAlbum } from './commands/album';
 import { downloadSongLyrics, downloadAlbumLyrics } from './commands/lyrics';
+import { tagFolder } from './commands/tag';
+import { setTaggingEnabled } from './services/tagger';
 import { downloadPlaylist, downloadPlaylistLyrics } from './commands/playlist';
 import { setProxy, initCookie, normalizeCookie, saveStoredCookie, clearStoredCookie, readStoredCookie, describeCookie, getCookieFilePath } from './services/netease';
 import { getAutoProxy } from './services/proxy';
@@ -16,9 +18,11 @@ program
   .option('-p, --proxy <url>', '设置代理服务器 Set proxy server (e.g. http://127.0.0.1:7890)')
   .option('-a, --auto-proxy', '当直连失败时自动寻找可用的中国代理服务器 Auto find available Chinese proxy server when direct connection fails')
   .option('-c, --cookie <value>', '临时覆盖已保存的 Cookie（MUSIC_U 值或完整字符串）；环境变量 NETEASE_MUSIC_U / NETEASE_COOKIE 同理 One-off override of the saved cookie (MUSIC_U value or full string); env NETEASE_MUSIC_U / NETEASE_COOKIE also override')
+  .option('--no-tags', '不写入元数据（标签/封面/歌词）Do not write metadata tags (tags/cover/lyrics) into downloaded files')
   .hook('preAction', async (thisCommand) => {
     const options = thisCommand.opts();
     initCookie(options.cookie);
+    if (options.tags === false) setTaggingEnabled(false);
     if (options.proxy) {
       setProxy(options.proxy);
     }
@@ -128,6 +132,18 @@ program
   .argument('<playlistId>', '歌单ID或URL Playlist ID or URL')
   .action(async (playlistId: string) => {
     await downloadPlaylistLyrics(playlistId);
+  });
+
+program
+  .command('tag')
+  .description('为已下载的文件夹按文件名搜索并补全元数据 Look up songs by file name in a folder and fill in metadata')
+  .argument('<folder>', '包含音频文件的文件夹 Folder containing audio files')
+  .option('--force', '覆盖已有标签 Overwrite files that already have tags')
+  .option('--dry-run', '只显示匹配结果，不写入 Only show matches, do not write')
+  .option('--min-score <n>', '最低匹配得分 Minimum match score 0-1 (default 0.75)', parseFloat)
+  .option('--no-recursive', '不处理子文件夹 Do not scan sub-folders')
+  .action(async (folder: string, options: { force?: boolean; dryRun?: boolean; minScore?: number; recursive?: boolean }) => {
+    await tagFolder(folder, options);
   });
 
 const cookieCmd = program
