@@ -4,7 +4,7 @@ import { program } from 'commander';
 import { downloadSong } from './commands/download';
 import { downloadAlbum } from './commands/album';
 import { downloadSongLyrics, downloadAlbumLyrics } from './commands/lyrics';
-import { setProxy, initCookie } from './services/netease';
+import { setProxy, initCookie, normalizeCookie, saveStoredCookie, clearStoredCookie, readStoredCookie, describeCookie, getCookieFilePath } from './services/netease';
 import { getAutoProxy } from './services/proxy';
 import * as fs from 'fs';
 
@@ -14,7 +14,7 @@ program
   .version('1.0.0')
   .option('-p, --proxy <url>', '设置代理服务器 Set proxy server (e.g. http://127.0.0.1:7890)')
   .option('-a, --auto-proxy', '当直连失败时自动寻找可用的中国代理服务器 Auto find available Chinese proxy server when direct connection fails')
-  .option('-c, --cookie <value>', '登录 Cookie（MUSIC_U 值或完整 Cookie 字符串），也可用环境变量 NETEASE_MUSIC_U / NETEASE_COOKIE Login cookie (MUSIC_U value or full cookie string); env NETEASE_MUSIC_U / NETEASE_COOKIE also supported')
+  .option('-c, --cookie <value>', '临时覆盖已保存的 Cookie（MUSIC_U 值或完整字符串）；环境变量 NETEASE_MUSIC_U / NETEASE_COOKIE 同理 One-off override of the saved cookie (MUSIC_U value or full string); env NETEASE_MUSIC_U / NETEASE_COOKIE also override')
   .hook('preAction', async (thisCommand) => {
     const options = thisCommand.opts();
     initCookie(options.cookie);
@@ -111,6 +111,37 @@ program
   .argument('<albumId>', '专辑ID或URL Album ID or URL')
   .action(async (albumId: string) => {
     await downloadAlbumLyrics(albumId);
+  });
+
+const cookieCmd = program
+  .command('cookie')
+  .description('管理已保存的登录 Cookie Manage the saved login cookie');
+
+cookieCmd
+  .command('set')
+  .description('保存 Cookie 到文件，之后所有请求自动使用 Save cookie to file; all later requests use it')
+  .argument('<value>', 'MUSIC_U 值或完整 Cookie 字符串 MUSIC_U value or full cookie string')
+  .action((value: string) => {
+    if (!saveStoredCookie(value)) {
+      console.error('Cookie 不能为空 Cookie must not be empty');
+      process.exit(1);
+    }
+    console.log(`Cookie 已保存 Cookie saved: ${getCookieFilePath()} (value hidden)`);
+  });
+
+cookieCmd
+  .command('show')
+  .description('显示已保存 Cookie 的状态（不显示内容）Show saved cookie status (value hidden)')
+  .action(() => {
+    console.log(`文件 File: ${getCookieFilePath()}`);
+    console.log(`状态 Status: ${describeCookie(readStoredCookie())}`);
+  });
+
+cookieCmd
+  .command('clear')
+  .description('删除已保存的 Cookie Remove the saved cookie')
+  .action(() => {
+    console.log(clearStoredCookie() ? 'Cookie 已删除 Cookie removed' : '没有已保存的 Cookie No saved cookie');
   });
 
 program.parse();

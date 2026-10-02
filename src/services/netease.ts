@@ -1,6 +1,9 @@
 import axios, { AxiosRequestConfig } from 'axios';
 import * as cheerio from 'cheerio';
 import { createCipheriv, createHash, randomBytes } from 'crypto';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { Song, AlbumInfo } from '../types';
 import { getAutoProxy } from './proxy';
 
@@ -42,12 +45,51 @@ export function normalizeCookie(raw: string | undefined): string | undefined {
   return value.includes('=') ? value : `MUSIC_U=${value}`;
 }
 
-// 优先级 Priority: --cookie > NETEASE_COOKIE > NETEASE_MUSIC_U
+// Cookie 持久化文件 Persisted cookie file (override dir with NETEASE_CONFIG_DIR)
+export function getCookieFilePath(): string {
+  const dir = process.env.NETEASE_CONFIG_DIR || path.join(os.homedir(), '.netease-music-downloader');
+  return path.join(dir, 'cookie');
+}
+
+export function readStoredCookie(): string | undefined {
+  try {
+    return normalizeCookie(fs.readFileSync(getCookieFilePath(), 'utf8'));
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveStoredCookie(raw: string): boolean {
+  const cookie = normalizeCookie(raw);
+  if (!cookie) return false;
+  const file = getCookieFilePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, cookie + '\n', { encoding: 'utf8', mode: 0o600 });
+  return true;
+}
+
+export function clearStoredCookie(): boolean {
+  try {
+    fs.unlinkSync(getCookieFilePath());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// 显示时隐藏内容 Masked summary, never reveals the value
+export function describeCookie(cookie: string | undefined): string {
+  if (!cookie) return '未设置 not set';
+  const names = cookie.split(';').map(kv => kv.split('=')[0].trim()).filter(Boolean);
+  return `已设置 set (${names.join(', ')}; ${cookie.length} chars)`;
+}
+
+// 优先级 Priority: --cookie > NETEASE_COOKIE > NETEASE_MUSIC_U > 保存的文件 saved cookie file
 export function initCookie(cliValue?: string): void {
-  const raw = cliValue || process.env.NETEASE_COOKIE || process.env.NETEASE_MUSIC_U;
-  userCookie = normalizeCookie(raw);
+  const override = cliValue || process.env.NETEASE_COOKIE || process.env.NETEASE_MUSIC_U;
+  userCookie = normalizeCookie(override) || readStoredCookie();
   if (userCookie) {
-    console.log('已使用自定义 Cookie Using user-provided cookie (value hidden)');
+    console.log(`已使用自定义 Cookie Using ${normalizeCookie(override) ? 'provided' : 'saved'} cookie (value hidden)`);
   }
 }
 
@@ -77,7 +119,7 @@ function getHeaders() {
 export function showCookieHintOnce(): void {
   if (userCookie || cookieHintShown) return;
   cookieHintShown = true;
-  console.log('提示：当前未配置登录 Cookie，以游客身份访问，VIP/付费歌曲可能无法下载。可使用 --cookie <MUSIC_U> 或设置环境变量 NETEASE_MUSIC_U。\nHint: No login cookie configured (guest mode); VIP/paid songs may be unavailable. Use --cookie <MUSIC_U> or set the NETEASE_MUSIC_U env var.');
+  console.log('提示：当前未配置登录 Cookie，以游客身份访问，VIP/付费歌曲可能无法下载。可运行 `cookie set <MUSIC_U>` 保存，或使用 --cookie / 环境变量 NETEASE_MUSIC_U。\nHint: No login cookie configured (guest mode); VIP/paid songs may be unavailable. Run `cookie set <MUSIC_U>` or use --cookie / the NETEASE_MUSIC_U env var.');
 }
 
 export function describeApiCode(code: number | string | undefined, message?: string): string {
@@ -128,7 +170,7 @@ function describeFee(fee: any): string | undefined {
 export function formatUnavailableHelp(reason: string | undefined, autoProxy?: boolean): string {
   const lines = [reason || '未知原因 Unknown reason'];
   const steps: string[] = [];
-  if (!hasUserCookie()) steps.push('--cookie <MUSIC_U>');
+  if (!hasUserCookie()) steps.push('`cookie set <MUSIC_U>` / --cookie <MUSIC_U>');
   if (!autoProxy) steps.push('--auto-proxy');
   if (steps.length) {
     lines.push(`建议 Suggestion: 尝试 try ${steps.join(' / ')}`);

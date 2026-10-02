@@ -157,7 +157,17 @@ pnpm start album 34836039 --proxy http://127.0.0.1:7890
 2. 打开开发者工具（`F12`）→ **Application（应用）**（Chrome/Edge）或 **Storage（存储）**（Firefox）→ **Cookies** → `https://music.163.com`。
 3. 复制名为 `MUSIC_U` 的 Cookie 的 **Value（值）**。
 
-### 使用方法
+### 一次保存，长期使用（推荐）
+
+```bash
+npx netease-music-downloader cookie set "<MUSIC_U 的值>"   # 保存到 ~/.netease-music-downloader/cookie
+npx netease-music-downloader cookie show                   # 仅显示状态，不会打印内容
+npx netease-music-downloader cookie clear                  # 删除
+```
+
+之后所有命令（download / album / lyrics / album-lyrics）都会自动使用已保存的 Cookie。`--cookie` 与下方环境变量可在单次运行中临时覆盖。可通过 `NETEASE_CONFIG_DIR` 修改存储目录。
+
+### 临时使用
 
 ```bash
 # 全局选项，适用于 download / album / lyrics / album-lyrics
@@ -174,7 +184,7 @@ npx netease-music-downloader download 1234567
 
 仅提供值时会自动包装为 `MUSIC_U=<值>`；游客的 `NMTID` / `_ntes_nuid` 仅在缺失时补充。
 
-> ⚠️ **请妥善保管 Cookie。** `MUSIC_U` 可访问你的账号，切勿分享、提交到仓库，或贴到公开 Issue/日志中。本工具不会打印它。建议使用环境变量以避免留在命令历史中；若泄露，请退出并重新登录以使其失效。
+> ⚠️ **请妥善保管 Cookie。** 已保存的 Cookie 文件为明文存储（Unix 下权限为 600），请保护好你的用户目录。 `MUSIC_U` 可访问你的账号，切勿分享、提交到仓库，或贴到公开 Issue/日志中。本工具不会打印它。建议使用环境变量以避免留在命令历史中；若泄露，请退出并重新登录以使其失效。
 
 ## 注意事项
 

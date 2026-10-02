@@ -159,7 +159,17 @@ By default the tool accesses NetEase as a guest, so VIP-only or paid songs may f
 2. Open DevTools (`F12`) → **Application** (Chrome/Edge) or **Storage** (Firefox) → **Cookies** → `https://music.163.com`.
 3. Copy the **Value** of the cookie named `MUSIC_U`.
 
-### Usage
+### Save the cookie once (recommended)
+
+```bash
+npx netease-music-downloader cookie set "<MUSIC_U value>"   # saved to ~/.netease-music-downloader/cookie
+npx netease-music-downloader cookie show                    # status only, value is never printed
+npx netease-music-downloader cookie clear                   # remove it
+```
+
+Every later command (download / album / lyrics / album-lyrics) automatically uses the saved cookie. `--cookie` and the env vars below override it for a single run. Set `NETEASE_CONFIG_DIR` to change the storage directory.
+
+### One-off usage
 
 ```bash
 # Global option, works with download / album / lyrics / album-lyrics
@@ -176,7 +186,7 @@ npx netease-music-downloader download 1234567
 
 A bare value is wrapped as `MUSIC_U=<value>`; the guest `NMTID` / `_ntes_nuid` cookies are added only when absent.
 
-> ⚠️ **Keep your cookie secret.** `MUSIC_U` grants access to your account. Never share it, commit it, or paste it into public issues/logs. The tool never prints it. Prefer environment variables over shell history, and log out / re-login to revoke it if leaked.
+> ⚠️ **Keep your cookie secret.** The saved cookie file is stored in plain text (mode 600 on Unix); protect your home directory. `MUSIC_U` grants access to your account. Never share it, commit it, or paste it into public issues/logs. The tool never prints it. Prefer environment variables over shell history, and log out / re-login to revoke it if leaked.
 
 ## Notes
 
