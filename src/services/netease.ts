@@ -27,12 +27,114 @@ export function setProxy(proxyUrl: string | undefined) {
   }
 }
 
-const headers = {
-  'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 CloudMusic/2.5.1',
-  'Referer': 'https://music.163.com/',
-  'Origin': 'https://music.163.com',
-  'Cookie': 'NMTID=00OJ_vv9oqXwqq8TQFLFUbVeZz059kAAAGMqWD4yw; _ntes_nuid=' + randomBytes(16).toString('hex'),
-};
+const GUEST_NMTID = '00OJ_vv9oqXwqq8TQFLFUbVeZz059kAAAGMqWD4yw';
+const guestNuid = randomBytes(16).toString('hex');
+
+let userCookie: string | undefined;
+let cookieHintShown = false;
+
+// 接受纯 MUSIC_U 值或完整 Cookie 字符串 Accept a bare MUSIC_U value or a full cookie string
+export function normalizeCookie(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  let value = raw.replace(/[\r\n]+/g, ' ').trim();
+  value = value.replace(/^cookie:\s*/i, '').replace(/^["']|["']$/g, '').trim();
+  if (!value) return undefined;
+  return value.includes('=') ? value : `MUSIC_U=${value}`;
+}
+
+// 优先级 Priority: --cookie > NETEASE_COOKIE > NETEASE_MUSIC_U
+export function initCookie(cliValue?: string): void {
+  const raw = cliValue || process.env.NETEASE_COOKIE || process.env.NETEASE_MUSIC_U;
+  userCookie = normalizeCookie(raw);
+  if (userCookie) {
+    console.log('已使用自定义 Cookie Using user-provided cookie (value hidden)');
+  }
+}
+
+export function hasUserCookie(): boolean {
+  return !!userCookie;
+}
+
+function buildCookie(): string {
+  const parts = userCookie ? [userCookie.replace(/;\s*$/, '')] : [];
+  const hasName = (name: string) =>
+    parts.some(part => part.split(';').some(kv => kv.trim().toLowerCase().startsWith(name.toLowerCase() + '=')));
+  if (!hasName('NMTID')) parts.push(`NMTID=${GUEST_NMTID}`);
+  if (!hasName('_ntes_nuid')) parts.push(`_ntes_nuid=${guestNuid}`);
+  return parts.join('; ');
+}
+
+function getHeaders() {
+  return {
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 CloudMusic/2.5.1',
+    'Referer': 'https://music.163.com/',
+    'Origin': 'https://music.163.com',
+    'Cookie': buildCookie(),
+  };
+}
+
+// 未配置 Cookie 时只提示一次 Print a one-time hint when no cookie is configured
+export function showCookieHintOnce(): void {
+  if (userCookie || cookieHintShown) return;
+  cookieHintShown = true;
+  console.log('提示：当前未配置登录 Cookie，以游客身份访问，VIP/付费歌曲可能无法下载。可使用 --cookie <MUSIC_U> 或设置环境变量 NETEASE_MUSIC_U。\nHint: No login cookie configured (guest mode); VIP/paid songs may be unavailable. Use --cookie <MUSIC_U> or set the NETEASE_MUSIC_U env var.');
+}
+
+export function describeApiCode(code: number | string | undefined, message?: string): string {
+  const base = `API 返回错误 API returned error: code=${code ?? 'unknown'}${message ? `, message=${message}` : ''}`;
+  const c = Number(code);
+  let hint = '';
+  if (c === 301) {
+    hint = hasUserCookie()
+      ? '未登录或 Cookie 已失效，请重新获取 MUSIC_U。Not logged in or cookie invalid/expired; get a fresh MUSIC_U.'
+      : '未登录，请使用 --cookie 提供 MUSIC_U。Not logged in; provide MUSIC_U via --cookie.';
+  } else if (c === -460 || c === 403) {
+    hint = '请求被风控拦截，可能是 IP 或地区受限（反爬）。Blocked by anti-bot, or your IP/region is restricted.';
+  } else if (c === 404) {
+    hint = '资源不存在或已下架。Resource not found or removed.';
+  } else if (c === 429 || c === -447) {
+    hint = '请求过于频繁，请稍后重试。Too many requests; retry later.';
+  }
+  return hint ? `${base}。${hint}` : base;
+}
+
+export function describeNetworkError(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    if (error.response) {
+      return describeApiCode(error.response.status, error.response.statusText) + ' (HTTP)';
+    }
+    const code = error.code;
+    if (code === 'ECONNABORTED' || code === 'ETIMEDOUT') {
+      return '请求超时 Request timed out，请检查网络或使用 --auto-proxy。Check your network or use --auto-proxy.';
+    }
+    if (code === 'ENOTFOUND' || code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'EAI_AGAIN') {
+      return `网络连接失败 Network error (${code})，请检查网络/代理设置。Check your network/proxy settings.`;
+    }
+    return `网络请求失败 Network request failed: ${error.message}`;
+  }
+  return `未知错误 Unknown error: ${error instanceof Error ? error.message : String(error)}`;
+}
+
+// 根据 fee 字段解释无法获取 URL 的原因 Explain a null url using the fee field
+function describeFee(fee: any): string | undefined {
+  switch (Number(fee)) {
+    case 1: return 'VIP 专属歌曲 VIP-only song (fee=1)';
+    case 4: return '需单独购买数字专辑 Requires purchasing the album (fee=4)';
+    case 8: return '高音质需要 VIP，普通音质可免费 High quality requires VIP (fee=8)';
+    default: return undefined;
+  }
+}
+
+export function formatUnavailableHelp(reason: string | undefined, autoProxy?: boolean): string {
+  const lines = [reason || '未知原因 Unknown reason'];
+  const steps: string[] = [];
+  if (!hasUserCookie()) steps.push('--cookie <MUSIC_U>');
+  if (!autoProxy) steps.push('--auto-proxy');
+  if (steps.length) {
+    lines.push(`建议 Suggestion: 尝试 try ${steps.join(' / ')}`);
+  }
+  return lines.join('\n');
+}
 
 // 音质等级，按优先级排序
 const QUALITY_LEVELS = ['hires', 'lossless', 'exhigh', 'higher', 'standard'];
@@ -106,7 +208,7 @@ export async function getSongInfo(id: string): Promise<Song> {
       }).toString(),
       {
         headers: {
-          ...headers,
+          ...getHeaders(),
           'Content-Type': 'application/x-www-form-urlencoded',
           'User-Agent': 'NeteaseMusic/2.5.1 (iPhone; iOS 16.6; Scale/3.00)'
         },
@@ -133,7 +235,7 @@ export async function getSongInfo(id: string): Promise<Song> {
       publishTime: song.publishTime
     };
   } catch (error) {
-    console.error('获取歌曲信息失败 Failed to get song info:', error instanceof Error ? error.message : 'Unknown error');
+    console.error('获取歌曲信息失败 Failed to get song info:', axios.isAxiosError(error) ? describeNetworkError(error) : (error instanceof Error ? error.message : 'Unknown error'));
     throw error; // 直接抛出错误，而不是返回默认值
   }
 }
@@ -157,7 +259,7 @@ export async function getAlbumInfo(albumId: string): Promise<AlbumInfo> {
       }).toString(),
       {
         headers: {
-          ...headers,
+          ...getHeaders(),
           'Content-Type': 'application/x-www-form-urlencoded',
           'User-Agent': 'NeteaseMusic/2.5.1 (iPhone; iOS 16.6; Scale/3.00)'
         }
@@ -165,7 +267,7 @@ export async function getAlbumInfo(albumId: string): Promise<AlbumInfo> {
     );
 
     if (response.data?.code !== 200) {
-      throw new Error(`API 返回错误 API returned error: ${response.data?.message || 'Unknown error'}`);
+      throw new Error(describeApiCode(response.data?.code, response.data?.message));
     }
 
     const album = response.data?.album;
@@ -203,7 +305,7 @@ export async function getAlbumInfo(albumId: string): Promise<AlbumInfo> {
       publishTime: album.publishTime
     };
   } catch (error) {
-    console.error('获取专辑信息失败 Failed to get album info:', error instanceof Error ? error.message : 'Unknown error');
+    console.error('获取专辑信息失败 Failed to get album info:', axios.isAxiosError(error) ? describeNetworkError(error) : (error instanceof Error ? error.message : 'Unknown error'));
     return {
       songs: [],
       albumName: '',
@@ -212,7 +314,14 @@ export async function getAlbumInfo(albumId: string): Promise<AlbumInfo> {
   }
 }
 
-async function getSongUrl(id: string, level: string): Promise<string | null> {
+interface SongUrlResult {
+  url: string | null;
+  reason?: string;
+  // 接口级错误，换音质重试没有意义 API/network-level failure; other qualities will not help
+  fatal?: boolean;
+}
+
+async function getSongUrl(id: string, level: string): Promise<SongUrlResult> {
   try {
     const url = '/api/song/enhance/player/url/v1';
     const data = {
@@ -234,7 +343,7 @@ async function getSongUrl(id: string, level: string): Promise<string | null> {
       }).toString(),
       {
         headers: {
-          ...headers,
+          ...getHeaders(),
           'Content-Type': 'application/x-www-form-urlencoded',
           'User-Agent': 'NeteaseMusic/2.5.1 (iPhone; iOS 16.6; Scale/3.00)'
         },
@@ -244,34 +353,34 @@ async function getSongUrl(id: string, level: string): Promise<string | null> {
     );
 
     if (response.data?.code !== 200) {
-      console.error(`API 返回错误 API returned error for ${level}:`, {
-        code: response.data?.code,
-        message: response.data?.message,
-        data: response.data
-      });
-      return null;
+      return { url: null, fatal: true, reason: describeApiCode(response.data?.code, response.data?.message) };
     }
 
     const songData = response.data?.data?.[0];
     if (!songData?.url) {
-      console.log(`未获到 ${level} 音质的 URL No URL found for ${level} quality`);
-      return null;
+      const details: string[] = [];
+      const feeText = describeFee(songData?.fee);
+      if (feeText) details.push(feeText);
+      if (songData?.freeTrialInfo) details.push('仅支持试听 Only a free trial is offered (freeTrialInfo present)');
+      if (songData?.code !== undefined && songData.code !== 200) {
+        const itemCode = Number(songData.code);
+        if (itemCode === -110 || itemCode === 404) details.push(`无版权或已下架 No copyright / removed (item code=${songData.code})`);
+        else if (itemCode === 403 || itemCode === -460) details.push(`访问被拒绝，可能是 IP/地区限制 Access denied, possibly IP/region restriction (item code=${songData.code})`);
+        else details.push(`item code=${songData.code}`);
+      }
+      const causes = '可能原因 Possible causes: 游客/未登录 guest or not logged in; VIP/付费专属 VIP-only or paid; 地区/IP 限制 region/IP restriction; 无版权 no copyright';
+      const reason = `接口返回 200 但没有下载链接 API returned 200 but no download URL for ${level}${details.length ? ` (${details.join('; ')})` : ''}。${causes}`;
+      return { url: null, reason };
+    }
+
+    if (songData.freeTrialInfo) {
+      console.log('警告：该链接可能仅为试听片段 Warning: this URL may be a trial clip only');
     }
 
     console.log(`获取到音质 Quality: ${level}, 比特率 Bitrate: ${Math.floor(songData.br / 1000)}kbps, 格式 Format: ${songData.type}, URL: ${songData.url}`);
-    return songData.url;
+    return { url: songData.url };
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      console.error(`尝试获取 ${level} 音质失败 Failed to get ${level} quality:`, {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        headers: error.response?.headers
-      });
-    } else {
-      console.error(`尝试获取 ${level} 音质失败 Failed to get ${level} quality:`, error instanceof Error ? error.message : 'Unknown error');
-    }
-    return null;
+    return { url: null, fatal: true, reason: describeNetworkError(error) };
   }
 }
 
@@ -282,49 +391,48 @@ export async function checkSongAvailability(id: string): Promise<{
   quality?: string;
   bitrate?: number;
   type?: string;
+  reason?: string;
 }> {
+  let reason: string | undefined;
   // 尝试获取最高音质
   for (const level of QUALITY_LEVELS) {
-    const url = await getSongUrl(id, level);
-    if (url) {
-      try {
-        const response = await axios.head(url, {
-          maxRedirects: 5,
-          validateStatus: status => status >= 200 && status < 400,
-          headers: {
-            ...headers,
-            'Referer': 'https://music.163.com/'
-          },
-          timeout: 10000,
-          ...proxyConfig
-        });
+    const result = await getSongUrl(id, level);
+    if (!result.url) {
+      reason = reason || result.reason;
+      if (result.fatal) break;
+      continue;
+    }
+    const url = result.url;
+    try {
+      const response = await axios.head(url, {
+        maxRedirects: 5,
+        validateStatus: status => status >= 200 && status < 400,
+        headers: {
+          ...getHeaders(),
+          'Referer': 'https://music.163.com/'
+        },
+        timeout: 10000,
+        ...proxyConfig
+      });
 
-        const contentLength = parseInt(response.headers['content-length'], 10);
-        if (contentLength > 500 * 1024) { // 大于 500KB
-          return {
-            available: true,
-            contentLength,
-            url,
-            quality: level,
-            bitrate: Math.floor(contentLength * 8 / (response.headers['content-duration'] || 300) / 1000), // 估算比特率
-            type: url.split('.').pop()?.split('?')[0]
-          };
-        }
-      } catch (error) {
-        if (axios.isAxiosError(error)) {
-          console.error(`检查音乐可用性失败 Failed to check availability:`, {
-            message: error.message,
-            response: error.response?.data,
-            status: error.response?.status
-          });
-        } else {
-          console.error(`检查音乐可用性失败 Failed to check availability:`, error instanceof Error ? error.message : 'Unknown error');
-        }
+      const contentLength = parseInt(response.headers['content-length'], 10);
+      if (contentLength > 500 * 1024) { // 大于 500KB
+        return {
+          available: true,
+          contentLength,
+          url,
+          quality: level,
+          bitrate: Math.floor(contentLength * 8 / (response.headers['content-duration'] || 300) / 1000), // 估算比特率
+          type: url.split('.').pop()?.split('?')[0]
+        };
       }
+      reason = reason || `文件过小，可能是试听片段 File too small (${Number.isNaN(contentLength) ? 'unknown' : contentLength} bytes), possibly a trial clip (${level})`;
+    } catch (error) {
+      reason = reason || `HEAD 检查失败 HEAD check failed (${level}): ${describeNetworkError(error)}`;
     }
   }
 
-  return { available: false };
+  return { available: false, reason };
 }
 
 export async function getLyrics(id: string): Promise<string | null> {
@@ -353,7 +461,7 @@ export async function getLyrics(id: string): Promise<string | null> {
       }).toString(),
       {
         headers: {
-          ...headers,
+          ...getHeaders(),
           'Content-Type': 'application/x-www-form-urlencoded',
           'User-Agent': 'NeteaseMusic/2.5.1 (iPhone; iOS 16.6; Scale/3.00)'
         },
@@ -362,7 +470,7 @@ export async function getLyrics(id: string): Promise<string | null> {
     );
 
     if (response.data?.code !== 200) {
-      console.error('获取歌词失败 Failed to get lyrics:', response.data?.message || 'Unknown error');
+      console.error('获取歌词失败 Failed to get lyrics:', describeApiCode(response.data?.code, response.data?.message));
       return null;
     }
 
@@ -374,7 +482,7 @@ export async function getLyrics(id: string): Promise<string | null> {
 
     return lrc;
   } catch (error) {
-    console.error('获取歌词失败 Failed to get lyrics:', error instanceof Error ? error.message : 'Unknown error');
+    console.error('获取歌词失败 Failed to get lyrics:', describeNetworkError(error));
     return null;
   }
 }
@@ -387,7 +495,10 @@ export async function checkSongAvailabilityWithRetry(id: string, autoProxy?: boo
   quality?: string;
   bitrate?: number;
   type?: string;
+  reason?: string;
 }> {
+  showCookieHintOnce();
+  let reason: string | undefined;
   // 先尝试直连
   console.log('尝试直连下载 Trying direct connection...');
   const originalProxy = proxyConfig;
@@ -399,8 +510,11 @@ export async function checkSongAvailabilityWithRetry(id: string, autoProxy?: boo
       console.log('直连成功 Direct connection successful');
       return { ...result, needProxy: false };
     }
+    reason = result.reason;
+    console.log('直连失败 Direct connection failed:', reason || 'unknown');
   } catch (error) {
-    console.log('直连失败 Direct connection failed');
+    reason = describeNetworkError(error);
+    console.log('直连失败 Direct connection failed:', reason);
   }
 
   // 如果直连失败且启用了自动代理，尝试寻找可用代理
@@ -410,9 +524,14 @@ export async function checkSongAvailabilityWithRetry(id: string, autoProxy?: boo
     if (proxyUrl) {
       try {
         const result = await checkSongAvailability(id);
-        return { ...result, needProxy: true };
+        if (!result.available) {
+          reason = result.reason || reason;
+          console.log('代理连接也失败了 Proxy connection also failed:', result.reason || 'unknown');
+        }
+        return { ...result, needProxy: true, reason: result.available ? undefined : reason };
       } catch (error) {
-        console.log('代理连接也失败了 Proxy connection also failed');
+        reason = describeNetworkError(error);
+        console.log('代理连接也失败了 Proxy connection also failed:', reason);
       }
     } else {
       console.log('未找到可用的代理服务器 No available proxy found');
@@ -425,11 +544,16 @@ export async function checkSongAvailabilityWithRetry(id: string, autoProxy?: boo
     setProxy(proxyUrl);
     try {
       const result = await checkSongAvailability(id);
-      return { ...result, needProxy: true };
+      if (!result.available) {
+        reason = result.reason || reason;
+        console.log('代理连接也失败了 Proxy connection also failed:', result.reason || 'unknown');
+      }
+      return { ...result, needProxy: true, reason: result.available ? undefined : reason };
     } catch (error) {
-      console.log('代理连接也失败了 Proxy connection also failed');
+      reason = describeNetworkError(error);
+      console.log('代理连接也失败了 Proxy connection also failed:', reason);
     }
   }
 
-  return { available: false, needProxy: false };
+  return { available: false, needProxy: false, reason };
 }

@@ -147,6 +147,35 @@ pnpm start album 34836039 --proxy http://127.0.0.1:7890
 
 注意：使用手动代理时，建议使用 `http://` 而不是 `https://` 作为代理地址的协议，因为某些代理服务器可能不能正确支持 HTTPS 连接。
 
+## 使用登录 Cookie（VIP / 付费歌曲）
+
+默认以游客身份访问网易云，VIP 专属或付费歌曲可能因“无下载链接”而失败。你可以提供自己的登录 Cookie。
+
+### 如何获取 `MUSIC_U`
+
+1. 在浏览器中登录 <https://music.163.com>。
+2. 打开开发者工具（`F12`）→ **Application（应用）**（Chrome/Edge）或 **Storage（存储）**（Firefox）→ **Cookies** → `https://music.163.com`。
+3. 复制名为 `MUSIC_U` 的 Cookie 的 **Value（值）**。
+
+### 使用方法
+
+```bash
+# 全局选项，适用于 download / album / lyrics / album-lyrics
+npx netease-music-downloader --cookie "<MUSIC_U 的值>" download 1234567
+
+# 也支持完整 Cookie 字符串（包含 "=" 即视为完整字符串）
+npx netease-music-downloader --cookie "MUSIC_U=xxx; __csrf=yyy" album 12345
+
+# 或使用环境变量（--cookie 优先级更高）
+# PowerShell: $env:NETEASE_MUSIC_U = "<MUSIC_U 的值>"
+export NETEASE_MUSIC_U="<MUSIC_U 的值>"   # 或 NETEASE_COOKIE
+npx netease-music-downloader download 1234567
+```
+
+仅提供值时会自动包装为 `MUSIC_U=<值>`；游客的 `NMTID` / `_ntes_nuid` 仅在缺失时补充。
+
+> ⚠️ **请妥善保管 Cookie。** `MUSIC_U` 可访问你的账号，切勿分享、提交到仓库，或贴到公开 Issue/日志中。本工具不会打印它。建议使用环境变量以避免留在命令历史中；若泄露，请退出并重新登录以使其失效。
+
 ## 注意事项
 
 - 仅供个人学习使用

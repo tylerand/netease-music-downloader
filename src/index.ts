@@ -4,7 +4,7 @@ import { program } from 'commander';
 import { downloadSong } from './commands/download';
 import { downloadAlbum } from './commands/album';
 import { downloadSongLyrics, downloadAlbumLyrics } from './commands/lyrics';
-import { setProxy } from './services/netease';
+import { setProxy, initCookie } from './services/netease';
 import { getAutoProxy } from './services/proxy';
 import * as fs from 'fs';
 
@@ -14,8 +14,10 @@ program
   .version('1.0.0')
   .option('-p, --proxy <url>', '设置代理服务器 Set proxy server (e.g. http://127.0.0.1:7890)')
   .option('-a, --auto-proxy', '当直连失败时自动寻找可用的中国代理服务器 Auto find available Chinese proxy server when direct connection fails')
+  .option('-c, --cookie <value>', '登录 Cookie（MUSIC_U 值或完整 Cookie 字符串），也可用环境变量 NETEASE_MUSIC_U / NETEASE_COOKIE Login cookie (MUSIC_U value or full cookie string); env NETEASE_MUSIC_U / NETEASE_COOKIE also supported')
   .hook('preAction', async (thisCommand) => {
     const options = thisCommand.opts();
+    initCookie(options.cookie);
     if (options.proxy) {
       setProxy(options.proxy);
     }

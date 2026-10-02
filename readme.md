@@ -149,6 +149,35 @@ pnpm start album 34836039 --proxy http://127.0.0.1:7890
 
 Note: When using a manual proxy, prefer using `http://` instead of `https://` for the proxy URL, as some proxy servers may not properly support HTTPS connections.
 
+## Using a Login Cookie (VIP / Paid Songs)
+
+By default the tool accesses NetEase as a guest, so VIP-only or paid songs may fail with "no download URL". You can supply your own login cookie.
+
+### How to get `MUSIC_U`
+
+1. Log in at <https://music.163.com> in your browser.
+2. Open DevTools (`F12`) → **Application** (Chrome/Edge) or **Storage** (Firefox) → **Cookies** → `https://music.163.com`.
+3. Copy the **Value** of the cookie named `MUSIC_U`.
+
+### Usage
+
+```bash
+# Global option, works with download / album / lyrics / album-lyrics
+npx netease-music-downloader --cookie "<MUSIC_U value>" download 1234567
+
+# A full cookie string (anything containing "=") is also accepted
+npx netease-music-downloader --cookie "MUSIC_U=xxx; __csrf=yyy" album 12345
+
+# Or use environment variables (--cookie takes precedence)
+# PowerShell: $env:NETEASE_MUSIC_U = "<MUSIC_U value>"
+export NETEASE_MUSIC_U="<MUSIC_U value>"   # or NETEASE_COOKIE
+npx netease-music-downloader download 1234567
+```
+
+A bare value is wrapped as `MUSIC_U=<value>`; the guest `NMTID` / `_ntes_nuid` cookies are added only when absent.
+
+> ⚠️ **Keep your cookie secret.** `MUSIC_U` grants access to your account. Never share it, commit it, or paste it into public issues/logs. The tool never prints it. Prefer environment variables over shell history, and log out / re-login to revoke it if leaked.
+
 ## Notes
 
 - For personal learning use only

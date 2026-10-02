@@ -1,7 +1,7 @@
 import { SingleBar, type Options } from 'cli-progress';
 import axios from 'axios';
 import * as fs from 'fs';
-import { getSongInfo, checkSongAvailabilityWithRetry, getLyrics, proxyConfig } from '../services/netease';
+import { getSongInfo, checkSongAvailabilityWithRetry, getLyrics, proxyConfig, formatUnavailableHelp } from '../services/netease';
 import { getAutoProxy } from '../services/proxy';
 import { sanitizeFileName, getDownloadPath } from '../utils/file';
 import { createSingleBar } from '../utils/progress';
@@ -42,7 +42,7 @@ export async function downloadSong(id: string, progressBar?: SingleBar, options?
 
       const availability = await checkSongAvailabilityWithRetry(id, options?.autoProxy);
       if (!availability.available || !availability.url) {
-        console.log(`歌曲已下架或无版权，跳过下载\nSong is unavailable or no copyright, skipping download`);
+        console.log(`无法获取下载链接，跳过下载 Cannot get download URL, skipping download\n${formatUnavailableHelp(availability.reason, options?.autoProxy)}`);
         return false;
       }
 
