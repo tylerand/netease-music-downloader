@@ -7,7 +7,7 @@ import { downloadSongLyrics, downloadAlbumLyrics } from './commands/lyrics';
 import { tagFolder } from './commands/tag';
 import { setTaggingEnabled } from './services/tagger';
 import { downloadPlaylist, downloadPlaylistLyrics } from './commands/playlist';
-import { setProxy, initCookie, normalizeCookie, saveStoredCookie, clearStoredCookie, readStoredCookie, describeCookie, getCookieFilePath } from './services/netease';
+import { setProxy, initCookie, normalizeCookie, saveStoredCookie, clearStoredCookie, readStoredCookie, describeCookie, getCookieFilePath, getAccountStatus } from './services/netease';
 import { getAutoProxy } from './services/proxy';
 import * as fs from 'fs';
 
@@ -169,6 +169,30 @@ cookieCmd
   .action(() => {
     console.log(`文件 File: ${getCookieFilePath()}`);
     console.log(`状态 Status: ${describeCookie(readStoredCookie())}`);
+  });
+
+cookieCmd
+  .command('status')
+  .description('向 NetEase 查询当前 Cookie 的登录/VIP 状态 Ask NetEase for the login/VIP status of the cookie in use')
+  .action(async () => {
+    try {
+      const s = await getAccountStatus();
+      if (!s.loggedIn) {
+        console.log('状态 Status: 游客/Cookie 无效或已过期 Guest, or the cookie is invalid/expired');
+        console.log('请重新获取 MUSIC_U 并运行 `cookie set` Get a fresh MUSIC_U and run `cookie set`');
+        return;
+      }
+      console.log(`状态 Status: 已登录 Logged in as ${s.nickname} (id ${s.userId})`);
+      const expire = s.vipExpire ? new Date(s.vipExpire).toLocaleDateString() : undefined;
+      if (s.vip) {
+        console.log(`会员 Membership: VIP${s.svip ? ' (黑胶SVIP/付费音乐包 SVIP or music package)' : ''}${expire ? `, 到期 expires ${expire}` : ''} (vipType=${s.vipType})`);
+      } else {
+        console.log(`会员 Membership: 非 VIP Not VIP${expire ? ` (上次到期 last expired ${expire})` : ''}，VIP 专属歌曲无法下载 VIP-only songs cannot be downloaded`);
+      }
+    } catch (error) {
+      console.error('查询失败 Query failed:', error instanceof Error ? error.message : error);
+      process.exitCode = 1;
+    }
   });
 
 cookieCmd

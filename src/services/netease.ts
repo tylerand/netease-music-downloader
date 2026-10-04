@@ -836,3 +836,63 @@ export async function checkSongAvailabilityWithRetry(id: string, autoProxy?: boo
 
   return { available: false, needProxy: false, reason };
 }
+
+async function eapiPost(path: string, extra: Record<string, unknown> = {}): Promise<any> {
+  const { params } = eapi(`/api/${path}`, {
+    ...extra,
+    header: { os: 'iOS', appver: '2.5.1', deviceId: randomBytes(8).toString('hex').toUpperCase() }
+  });
+  const response = await axios.post(
+    `https://interface3.music.163.com/eapi/${path}`,
+    new URLSearchParams({ params }).toString(),
+    {
+      headers: {
+        ...getHeaders(),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'NeteaseMusic/2.5.1 (iPhone; iOS 16.6; Scale/3.00)'
+      },
+      timeout: 10000,
+      ...proxyConfig
+    }
+  );
+  return response.data;
+}
+
+export interface AccountStatus {
+  loggedIn: boolean;
+  nickname?: string;
+  userId?: string;
+  vip?: boolean;
+  vipType?: number;
+  vipExpire?: number;
+  svip?: boolean;
+}
+
+// 查询当前 Cookie 的登录/VIP 状态 Query login/VIP status of the cookie currently in use
+export async function getAccountStatus(): Promise<AccountStatus> {
+  const account = await eapiPost('nuser/account/get');
+  if (!account?.account || !account?.profile) return { loggedIn: false };
+  const status: AccountStatus = {
+    loggedIn: true,
+    nickname: account.profile.nickname,
+    userId: String(account.account.id ?? account.profile.userId ?? ''),
+    vipType: Number(account.account.vipType ?? 0)
+  };
+  status.vip = status.vipType! > 0;
+  try {
+    const vip = await eapiPost('music-vip-membership/front/vip/info', { userId: status.userId });
+    const d = vip?.data;
+    const assoc = d?.associator;
+    const musicPackage = d?.musicPackage;
+    if (assoc?.expireTime || musicPackage?.expireTime) {
+      const now = Date.now();
+      const expiries = [assoc?.expireTime, musicPackage?.expireTime].filter((x: any) => typeof x === 'number' && x > 0);
+      status.vipExpire = Math.max(...expiries);
+      status.vip = expiries.some((x: number) => x > now) || status.vip;
+    }
+    if (musicPackage?.expireTime > Date.now()) status.svip = true;
+  } catch {
+    // VIP 详情是可选信息 VIP details are optional
+  }
+  return status;
+}

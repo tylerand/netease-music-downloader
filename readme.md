@@ -194,6 +194,7 @@ By default the tool accesses NetEase as a guest, so VIP-only or paid songs may f
 ```bash
 npx netease-music-downloader cookie set "<MUSIC_U value>"   # saved to ~/.netease-music-downloader/cookie
 npx netease-music-downloader cookie show                    # status only, value is never printed
+npx netease-music-downloader cookie status   # ask NetEase: logged in? VIP? expiry
 npx netease-music-downloader cookie clear                   # remove it
 ```
 

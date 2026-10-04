@@ -192,6 +192,7 @@ npx netease-music-downloader tag "./downloads/我的歌单"
 ```bash
 npx netease-music-downloader cookie set "<MUSIC_U 的值>"   # 保存到 ~/.netease-music-downloader/cookie
 npx netease-music-downloader cookie show                   # 仅显示状态，不会打印内容
+npx netease-music-downloader cookie status   # 向网易云查询：是否登录？是否VIP？到期时间
 npx netease-music-downloader cookie clear                  # 删除
 ```
 
