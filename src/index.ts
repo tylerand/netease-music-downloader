@@ -7,7 +7,7 @@ import { downloadSongLyrics, downloadAlbumLyrics } from './commands/lyrics';
 import { tagFolder } from './commands/tag';
 import { setTaggingEnabled } from './services/tagger';
 import { downloadPlaylist, downloadPlaylistLyrics } from './commands/playlist';
-import { setProxy, initCookie, normalizeCookie, saveStoredCookie, clearStoredCookie, readStoredCookie, describeCookie, getCookieFilePath, getAccountStatus } from './services/netease';
+import { setProxy, initCookie, normalizeCookie, saveStoredCookie, clearStoredCookie, readStoredCookie, describeCookie, getCookieFilePath, getAccountStatus, getAccountSummary } from './services/netease';
 import { getAutoProxy } from './services/proxy';
 import * as fs from 'fs';
 
@@ -19,12 +19,15 @@ program
   .option('-a, --auto-proxy', '当直连失败时自动寻找可用的中国代理服务器 Auto find available Chinese proxy server when direct connection fails')
   .option('-c, --cookie <value>', '临时覆盖已保存的 Cookie（MUSIC_U 值或完整字符串）；环境变量 NETEASE_MUSIC_U / NETEASE_COOKIE 同理 One-off override of the saved cookie (MUSIC_U value or full string); env NETEASE_MUSIC_U / NETEASE_COOKIE also override')
   .option('--no-tags', '不写入元数据（标签/封面/歌词）Do not write metadata tags (tags/cover/lyrics) into downloaded files')
-  .hook('preAction', async (thisCommand) => {
+  .hook('preAction', async (thisCommand, actionCommand) => {
     const options = thisCommand.opts();
     initCookie(options.cookie);
     if (options.tags === false) setTaggingEnabled(false);
     if (options.proxy) {
       setProxy(options.proxy);
+    }
+    if (actionCommand.parent?.name() !== 'cookie' && actionCommand.name() !== 'cookie') {
+      console.log((await getAccountSummary()).join('\n') + '\n');
     }
   });
 

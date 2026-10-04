@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { getSongInfo, searchSongs, SearchResult } from '../services/netease';
+import { getSongInfo, searchSongs, SearchResult, getAccountSummary } from '../services/netease';
 import { getDurationMs, hasExistingTags, tagFile } from '../services/tagger';
 import { sanitizeFileName } from '../utils/file';
 
@@ -180,7 +180,7 @@ export async function tagFolder(folder: string, options: TagFolderOptions = {}):
 
   if (problems.length > 0 && !options.dryRun) {
     const logPath = path.join(root, 'tag-problems.txt');
-    fs.writeFileSync(logPath, `未匹配/失败 Unmatched or failed files:\n${problems.join('\n')}\n`, 'utf8');
+    fs.writeFileSync(logPath, `${(await getAccountSummary()).join('\n')}\n\n未匹配/失败 Unmatched or failed files:\n${problems.join('\n')}\n`, 'utf8');
     console.log(`问题列表已保存 Problem list saved: ${logPath}`);
   }
 }

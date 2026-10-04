@@ -896,3 +896,33 @@ export async function getAccountStatus(): Promise<AccountStatus> {
   }
   return status;
 }
+
+let accountSummaryCache: string[] | undefined;
+
+// 登录用户与会员等级的两行摘要（仅查询一次）Two-line login/membership summary, fetched once per run
+export async function getAccountSummary(): Promise<string[]> {
+  if (accountSummaryCache) return accountSummaryCache;
+  let lines: string[];
+  try {
+    const s = await getAccountStatus();
+    if (!s.loggedIn) {
+      lines = [
+        '登录状态 Logged in as: 游客 Guest (未登录或 Cookie 已失效 not logged in or cookie invalid)',
+        '会员权限 Membership: 无 None'
+      ];
+    } else {
+      const expire = s.vipExpire ? new Date(s.vipExpire).toLocaleDateString() : undefined;
+      const level = s.vip
+        ? `VIP${s.svip ? ' (SVIP)' : ''}${expire ? `, 到期 expires ${expire}` : ''} (vipType=${s.vipType})`
+        : '非 VIP Not VIP';
+      lines = [`登录状态 Logged in as: ${s.nickname} (id ${s.userId})`, `会员权限 Membership: ${level}`];
+    }
+  } catch (error) {
+    lines = [
+      `登录状态 Logged in as: 未知 Unknown (${describeNetworkError(error)})`,
+      '会员权限 Membership: 未知 Unknown'
+    ];
+  }
+  accountSummaryCache = lines;
+  return lines;
+}

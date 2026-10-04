@@ -7,7 +7,8 @@ import {
   checkSongAvailabilityWithRetry,
   getLyrics,
   proxyConfig,
-  formatUnavailableHelp
+  formatUnavailableHelp,
+  getAccountSummary
 } from '../services/netease';
 import { sanitizeFileName, getDownloadPath } from '../utils/file';
 import { tagFile } from '../services/tagger';
@@ -180,6 +181,8 @@ export async function downloadPlaylist(playlistInput: string, options?: { autoPr
 
   if (failures.length > 0) {
     const lines = [
+      ...(await getAccountSummary()),
+      '',
       `歌单 Playlist: ${playlistName} (${creatorName})`,
       `总计 Total: ${songs.length}, 成功 Downloaded: ${results.success}, 失败 Failed: ${results.failed}, 已存在跳过 Skipped: ${results.skipped}`,
       '',
