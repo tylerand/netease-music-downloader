@@ -517,6 +517,54 @@ export async function getPlaylistInfo(playlistId: string): Promise<PlaylistInfo>
   }
 }
 
+// 通过歌曲详情的 privilege 判断是否因版权下架：st<0 表示已下架/无版权
+// Use the detail endpoint's privilege.st (<0 = removed / no copyright) to tell copyright removal from other causes
+const copyrightCache = new Map<string, string | null>();
+
+async function getCopyrightVerdict(id: string): Promise<string | null> {
+  if (copyrightCache.has(id)) return copyrightCache.get(id)!;
+  let verdict: string | null = null;
+  try {
+    const url = '/api/v3/song/detail';
+    const { params } = eapi(url, {
+      c: JSON.stringify([{ id }]),
+      header: { os: 'iOS', appver: '2.5.1', deviceId: randomBytes(8).toString('hex').toUpperCase() }
+    });
+    const response = await axios.post(
+      'https://interface3.music.163.com/eapi/v3/song/detail',
+      new URLSearchParams({ params }).toString(),
+      {
+        headers: {
+          ...getHeaders(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'NeteaseMusic/2.5.1 (iPhone; iOS 16.6; Scale/3.00)'
+        },
+        timeout: 10000,
+        ...proxyConfig
+      }
+    );
+    const song = response.data?.songs?.[0];
+    const priv = response.data?.privileges?.[0];
+    if (!song && !priv) {
+      verdict = '歌曲已不存在 Song no longer exists on NetEase (not returned by the detail API)';
+    } else if (priv && Number(priv.st) < 0) {
+      verdict = `【确认：版权下架】该歌曲已被平台下架/失去版权 CONFIRMED copyright removal: the song is taken down on NetEase (privilege.st=${priv.st})`;
+    } else if (song?.noCopyrightRcmd) {
+      verdict = '【确认：无版权】平台标记为无版权，并推荐了替代版本 CONFIRMED no copyright: NetEase flags it and suggests another version (noCopyrightRcmd)';
+    } else if (priv && Number(priv.fee) === 1 && Number(priv.pl) === 0) {
+      verdict = '不是版权问题：VIP 专属歌曲，请使用 VIP 账号的 cookie NOT a copyright removal: VIP-only, use a VIP account cookie';
+    } else if (priv && Number(priv.fee) === 4) {
+      verdict = '不是版权问题：需单独购买 NOT a copyright removal: requires separate purchase';
+    } else if (priv) {
+      verdict = `未发现下架标记（st=${priv.st}, fee=${priv.fee}），更可能是登录/地区/IP 限制 No takedown flag found (st=${priv.st}, fee=${priv.fee}); more likely a login, region or IP restriction`;
+    }
+  } catch {
+    verdict = null;
+  }
+  copyrightCache.set(id, verdict);
+  return verdict;
+}
+
 async function getSongUrl(id: string, level: string): Promise<SongUrlResult> {
   try {
     const url = '/api/song/enhance/player/url/v1';
@@ -565,7 +613,8 @@ async function getSongUrl(id: string, level: string): Promise<SongUrlResult> {
         else details.push(`item code=${songData.code}`);
       }
       const causes = '可能原因 Possible causes: 游客/未登录 guest or not logged in; VIP/付费专属 VIP-only or paid; 地区/IP 限制 region/IP restriction; 无版权 no copyright';
-      const reason = `接口返回 200 但没有下载链接 API returned 200 but no download URL for ${level}${details.length ? ` (${details.join('; ')})` : ''}。${causes}`;
+      const verdict = await getCopyrightVerdict(id);
+      const reason = `接口返回 200 但没有下载链接 API returned 200 but no download URL for ${level}${details.length ? ` (${details.join('; ')})` : ''}。${verdict ? `\n${verdict}` : causes}`;
       return { url: null, reason };
     }
 
