@@ -188,7 +188,7 @@ cookieCmd
       console.log(`状态 Status: 已登录 Logged in as ${s.nickname} (id ${s.userId})`);
       const expire = s.vipExpire ? new Date(s.vipExpire).toLocaleDateString() : undefined;
       if (s.vip) {
-        console.log(`会员 Membership: VIP${s.svip ? ' (黑胶SVIP/付费音乐包 SVIP or music package)' : ''}${expire ? `, 到期 expires ${expire}` : ''} (vipType=${s.vipType})`);
+        console.log(`会员 Membership: VIP${s.svip ? ' (SVIP)' : ''}${s.musicPackage ? ' + 付费音乐包 music package' : ''}${expire ? `, 到期 expires ${expire}` : ''} (vipType=${s.vipType})`);
       } else {
         console.log(`会员 Membership: 非 VIP Not VIP${expire ? ` (上次到期 last expired ${expire})` : ''}，VIP 专属歌曲无法下载 VIP-only songs cannot be downloaded`);
       }

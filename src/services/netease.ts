@@ -548,9 +548,11 @@ async function getCopyrightVerdict(id: string): Promise<string | null> {
     if (!song && !priv) {
       verdict = '歌曲已不存在 Song no longer exists on NetEase (not returned by the detail API)';
     } else if (priv && Number(priv.st) < 0) {
-      verdict = `【确认：版权下架】该歌曲已被平台下架/失去版权 CONFIRMED copyright removal: the song is taken down on NetEase (privilege.st=${priv.st})`;
+      verdict = priv.toast
+        ? `灰色歌曲：平台提示「因版权保护暂时无法使用」，可能是版权下架，也可能是地区限制，接口无法区分 Greyed out (privilege.st=${priv.st}) with NetEase's "unavailable due to copyright protection" notice: either removed for copyright or region-locked, the API cannot tell which. Try a Chinese proxy (--auto-proxy); if it still fails it is most likely removed`
+        : `灰色歌曲，当前不可播放 Greyed out / unplayable (privilege.st=${priv.st}); the API does not say why`;
     } else if (song?.noCopyrightRcmd) {
-      verdict = '【确认：无版权】平台标记为无版权，并推荐了替代版本 CONFIRMED no copyright: NetEase flags it and suggests another version (noCopyrightRcmd)';
+      verdict = '平台标记了 noCopyrightRcmd，可能无版权（该字段并不确定）NetEase set noCopyrightRcmd; possibly no copyright (this field is not conclusive)';
     } else if (priv && Number(priv.fee) === 1 && Number(priv.pl) === 0) {
       verdict = '不是版权问题：VIP 专属歌曲，请使用 VIP 账号的 cookie NOT a copyright removal: VIP-only, use a VIP account cookie';
     } else if (priv && Number(priv.fee) === 4) {
@@ -837,7 +839,7 @@ export async function checkSongAvailabilityWithRetry(id: string, autoProxy?: boo
   return { available: false, needProxy: false, reason };
 }
 
-async function eapiPost(path: string, extra: Record<string, unknown> = {}): Promise<any> {
+export async function eapiPost(path: string, extra: Record<string, unknown> = {}): Promise<any> {
   const { params } = eapi(`/api/${path}`, {
     ...extra,
     header: { os: 'iOS', appver: '2.5.1', deviceId: randomBytes(8).toString('hex').toUpperCase() }
@@ -866,6 +868,7 @@ export interface AccountStatus {
   vipType?: number;
   vipExpire?: number;
   svip?: boolean;
+  musicPackage?: boolean;
 }
 
 // 查询当前 Cookie 的登录/VIP 状态 Query login/VIP status of the cookie currently in use
@@ -890,7 +893,9 @@ export async function getAccountStatus(): Promise<AccountStatus> {
       status.vipExpire = Math.max(...expiries);
       status.vip = expiries.some((x: number) => x > now) || status.vip;
     }
-    if (musicPackage?.expireTime > Date.now()) status.svip = true;
+    // redplus (vipCode 300) 才是黑胶SVIP；musicPackage (220) 是付费音乐包 redplus is SVIP; musicPackage is the paid music package
+    if (d?.redplus?.expireTime > Date.now()) status.svip = true;
+    if (musicPackage?.expireTime > Date.now()) status.musicPackage = true;
   } catch {
     // VIP 详情是可选信息 VIP details are optional
   }
@@ -913,7 +918,7 @@ export async function getAccountSummary(): Promise<string[]> {
     } else {
       const expire = s.vipExpire ? new Date(s.vipExpire).toLocaleDateString() : undefined;
       const level = s.vip
-        ? `VIP${s.svip ? ' (SVIP)' : ''}${expire ? `, 到期 expires ${expire}` : ''} (vipType=${s.vipType})`
+        ? `VIP${s.svip ? ' (SVIP)' : ''}${s.musicPackage ? ' + 付费音乐包 music package' : ''}${expire ? `, 到期 expires ${expire}` : ''} (vipType=${s.vipType})`
         : '非 VIP Not VIP';
       lines = [`登录状态 Logged in as: ${s.nickname} (id ${s.userId})`, `会员权限 Membership: ${level}`];
     }
